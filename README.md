@@ -22,7 +22,8 @@ cp .env.example .env  # и заполнить ключи
 KINOPOISK_API_KEY=...
 OMDB_API_KEY=...
 FAL_API_KEY=...
-TMDB_API_KEY=...   # опционально, см. "ТТ на изображение"
+TMDB_API_KEY=...     # опционально, см. "ТТ на изображение"
+FANART_API_KEY=...   # опционально, см. "ТТ на изображение"
 ```
 
 ## Использование
@@ -43,7 +44,7 @@ Vol. 2" (2017): получает метаданные и сохраняет сг
 from covergen import get_metadata, fetch_poster, run_pipeline
 
 metadata = get_metadata("Guardians of the Galaxy Vol. 2", year=2017)
-poster = fetch_poster(metadata)  # poster.path, poster.is_original
+poster = fetch_poster(metadata)  # poster.path, poster.is_original_art, poster.title_is_official
 
 # или всё вместе
 metadata, poster = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
@@ -66,12 +67,14 @@ metadata, poster = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
    обрезка/масштаб под размер), ничего не дорисовываем.
 2. **Локализованный постер с TMDb** (`language=ru`) — если задан
    `TMDB_API_KEY`, ищем на themoviedb.org уже готовый официальный постер на
-   русском (актуально, когда Kinopoisk не нашёл тайтл или дал постер без
-   перевода). Тоже используется как есть.
-3. **Реальный постер без русского названия** — берём его же
-   (Kinopoisk/OMDb), но поверх накладываем название: если `title_ru` нет,
-   сначала пробуем машинный перевод оригинального названия (бесплатный
-   MyMemory API, без ключа), рисуем фиксированным шрифтом
+   русском. Тоже используется как есть.
+3. **Локализованный постер с fanart.tv** (`lang=ru`) — если задан
+   `FANART_API_KEY`, ищем по IMDb id (`metadata.imdb_id`) на fanart.tv.
+   Тоже используется как есть.
+4. **Реальный постер без русского названия** — берём тот, что уже есть
+   (Kinopoisk/OMDb или fanart.tv не на русском), но поверх накладываем
+   название: сначала пробуем машинный перевод оригинального названия
+   (бесплатный MyMemory API, без ключа), рисуем фиксированным шрифтом
    (`covergen/assets/fonts/DejaVuSans-Bold.ttf`, кириллица), а цвет текста
    подбираем автоматически — берём самый насыщенный "акцентный" цвет из
    самого этого постера (не белый по умолчанию). Это подгонка под конкретную
@@ -79,7 +82,7 @@ metadata, poster = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
    вытащить и переиспользовать именно фирменный шрифт/Pantone-код лого с
    картинки программными средствами не выйдет (нет надёжного инструмента
    распознавания шрифта по изображению с точным вопроизведением).
-4. **Официального постера не нашлось нигде** — последний фолбэк: Fal.ai
+5. **Официального постера не нашлось нигде** — последний фолбэк: Fal.ai
    рисует приближённый арт (реальные кадры фильма ИИ в принципе использовать
    не может — у text-to-image моделей нет доступа к футажу), с тем же
    наложением названия. Это никогда не выдаётся за настоящее: у результата
@@ -87,9 +90,9 @@ metadata, poster = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
 
 `PosterResult` явно фиксирует, что получилось на выходе:
 - `is_original_art` — реальная ли это художественная часть (True для
-  вариантов 1–3, False только для AI-заглушки)
+  вариантов 1–4, False только для AI-заглушки)
 - `title_is_official` — является ли видимый на картинке текст официальной
-  типографикой студии (True для вариантов 1–2, False там, где текст
+  типографикой студии (True для вариантов 1–3, False там, где текст
   накладывали мы сами)
 
 ## Структура
@@ -97,6 +100,8 @@ metadata, poster = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
 - `covergen/metadata.py` — `get_metadata()`: Kinopoisk (kinopoisk.dev) → OMDb fallback
 - `covergen/tmdb.py` — `fetch_localized_poster_url()`: поиск локализованного
   постера на TMDb (опционально, нужен `TMDB_API_KEY`)
+- `covergen/fanart.py` — `fetch_poster()`: поиск постера (желательно `ru`) на
+  fanart.tv по IMDb id (опционально, нужен `FANART_API_KEY`)
 - `covergen/translate.py` — `translate_to_russian()`: бесплатный
   machine-translation фолбэк (MyMemory, без ключа) для случаев без `title_ru`
 - `covergen/art.py` — `fetch_poster()`: перебор источников постера по
@@ -122,9 +127,10 @@ Kinopoisk, OMDb и Fal.ai могут быть недоступны из неко
 
 Перед первым запуском добавьте секреты репозитория (Settings → Secrets and
 variables → Actions): `KINOPOISK_API_KEY`, `OMDB_API_KEY`, `FAL_API_KEY`, и
-опционально `TMDB_API_KEY` (бесплатный ключ на
-https://www.themoviedb.org/settings/api — нужен только для поиска
-локализованных постеров; без него пайплайн просто пропускает этот источник).
+опционально `TMDB_API_KEY` (https://www.themoviedb.org/settings/api) и/или
+`FANART_API_KEY` (Personal API Key в настройках аккаунта на fanart.tv) —
+оба нужны только для поиска локализованных постеров; без них пайплайн
+просто пропускает соответствующий источник.
 
 Дальше запускать вручную: вкладка Actions → "Generate poster" → Run workflow,
 указав `title`/`year`. Результат — артефакт `poster-<run_id>` с файлом из

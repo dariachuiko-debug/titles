@@ -102,15 +102,41 @@ class FetchPosterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
             "covergen.art.requests.get", return_value=response
-        ), patch("covergen.art.fetch_localized_poster_url", return_value="https://tmdb.example/ru-poster.jpg") as mock_tmdb:
+        ), patch(
+            "covergen.art.fetch_localized_poster_url", return_value="https://tmdb.example/ru-poster.jpg"
+        ) as mock_tmdb, patch("covergen.art.fetch_fanart_poster", return_value=(None, False)):
             result = fetch_poster(metadata, output_dir=tmp_dir)
 
         mock_tmdb.assert_called_once()
         self.assertTrue(result.is_original_art)
         self.assertTrue(result.title_is_official)
 
+    def test_uses_fanart_ru_poster_when_no_kinopoisk_or_tmdb_match(self):
+        """Step 3: no title_ru, TMDb has nothing, but fanart.tv has a ru poster -> used untouched."""
+        metadata = TitleMetadata(
+            title_ru=None,
+            title_original="Test Movie",
+            year=2020,
+            source="omdb",
+            poster_url="https://example.com/english-poster.jpg",
+            imdb_id="tt1234567",
+        )
+        response = MagicMock(content=self._fake_poster_bytes())
+        response.raise_for_status.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmp_dir, patch(
+            "covergen.art.requests.get", return_value=response
+        ), patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
+            "covergen.art.fetch_fanart_poster", return_value=("https://fanart.example/ru-poster.jpg", True)
+        ) as mock_fanart:
+            result = fetch_poster(metadata, output_dir=tmp_dir)
+
+        mock_fanart.assert_called_once_with("tt1234567", preferred_language="ru")
+        self.assertTrue(result.is_original_art)
+        self.assertTrue(result.title_is_official)
+
     def test_overlays_translated_title_on_real_poster_as_last_resort_before_ai(self):
-        """Step 3: real poster exists but only in English, no TMDb ru version -> overlay our translation."""
+        """Step 4: real poster exists but only in English, no TMDb/fanart ru version -> overlay our translation."""
         metadata = TitleMetadata(
             title_ru=None,
             title_original="Test Movie",
@@ -124,15 +150,41 @@ class FetchPosterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
             "covergen.art.requests.get", return_value=response
         ), patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
-            "covergen.art.translate_to_russian", return_value="Тестовый фильм"
-        ):
+            "covergen.art.fetch_fanart_poster", return_value=(None, False)
+        ), patch("covergen.art.translate_to_russian", return_value="Тестовый фильм"):
             result = fetch_poster(metadata, output_dir=tmp_dir)
 
         self.assertTrue(result.is_original_art)
         self.assertFalse(result.title_is_official)
 
+    def test_uses_fanart_any_language_poster_before_giving_up_to_ai(self):
+        """Step 5: no metadata.poster_url at all, but fanart.tv has a poster in some other language."""
+        metadata = TitleMetadata(
+            title_ru=None,
+            title_original="Test Movie",
+            year=2020,
+            source="omdb",
+            poster_url=None,
+            imdb_id="tt1234567",
+        )
+        response = MagicMock(content=self._fake_poster_bytes())
+        response.raise_for_status.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmp_dir, patch(
+            "covergen.art.requests.get", return_value=response
+        ), patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
+            "covergen.art.fetch_fanart_poster", return_value=("https://fanart.example/en-poster.jpg", False)
+        ), patch("covergen.art.translate_to_russian", return_value="Тестовый фильм"), patch(
+            "covergen.art.generate_art"
+        ) as mock_generate:
+            result = fetch_poster(metadata, output_dir=tmp_dir)
+
+        mock_generate.assert_not_called()
+        self.assertTrue(result.is_original_art)
+        self.assertFalse(result.title_is_official)
+
     def test_falls_back_to_ai_art_when_no_poster_anywhere(self):
-        """Step 4: nothing real found -> AI placeholder, clearly flagged as not original."""
+        """Step 6: nothing real found anywhere -> AI placeholder, clearly flagged as not original."""
         metadata = TitleMetadata(
             title_ru=None,
             title_original="Test Movie",
@@ -142,8 +194,8 @@ class FetchPosterTests(unittest.TestCase):
         )
 
         with patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
-            "covergen.art.generate_art", return_value=Path("/tmp/fake-poster.jpg")
-        ) as mock_generate:
+            "covergen.art.fetch_fanart_poster", return_value=(None, False)
+        ), patch("covergen.art.generate_art", return_value=Path("/tmp/fake-poster.jpg")) as mock_generate:
             result = fetch_poster(metadata, output_dir="ignored")
 
         mock_generate.assert_called_once()
@@ -161,7 +213,9 @@ class FetchPosterTests(unittest.TestCase):
 
         with patch("covergen.art.requests.get", side_effect=OSError("boom")), patch(
             "covergen.art.fetch_localized_poster_url", return_value=None
-        ), patch("covergen.art.generate_art", return_value=Path("/tmp/fake-poster.jpg")) as mock_generate:
+        ), patch("covergen.art.fetch_fanart_poster", return_value=(None, False)), patch(
+            "covergen.art.generate_art", return_value=Path("/tmp/fake-poster.jpg")
+        ) as mock_generate:
             result = fetch_poster(metadata, output_dir="ignored")
 
         mock_generate.assert_called_once()

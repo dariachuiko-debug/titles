@@ -19,3 +19,7 @@ def get_fal_api_key() -> str | None:
 
 def get_tmdb_api_key() -> str | None:
     return os.getenv("TMDB_API_KEY")
+
+
+def get_fanart_api_key() -> str | None:
+    return os.getenv("FANART_API_KEY")

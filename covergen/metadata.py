@@ -111,6 +111,7 @@ def _parse_kinopoisk_doc(doc: dict) -> TitleMetadata:
     genres = [g["name"] for g in doc.get("genres", []) if g.get("name")]
     poster = doc.get("poster") or {}
     description = doc.get("description") or doc.get("shortDescription")
+    external_id = doc.get("externalId") or {}
 
     return TitleMetadata(
         title_ru=doc.get("name"),
@@ -121,6 +122,7 @@ def _parse_kinopoisk_doc(doc: dict) -> TitleMetadata:
         description=description,
         source="kinopoisk",
         kinopoisk_id=doc.get("id"),
+        imdb_id=external_id.get("imdb"),
     )
 
 

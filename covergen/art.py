@@ -10,6 +10,7 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from .config import get_fal_api_key
+from .fanart import fetch_poster as fetch_fanart_poster
 from .metadata import TitleMetadata
 from .tmdb import fetch_localized_poster_url
 from .translate import translate_to_russian
@@ -81,10 +82,13 @@ def fetch_poster(
     1. Kinopoisk/OMDb poster_url when we also have a confirmed Russian title — assumed
        to already carry the studio's own Russian typography, used as-is.
     2. A real, Russian-localized poster from TMDb, if TMDB_API_KEY is configured.
-    3. The real poster we do have (possibly English-only), with a best-effort
-       translated Russian title overlaid in a fixed font and a color sampled from
-       that same image.
-    4. Last resort: Fal.ai-generated placeholder art (never real), with the same
+    3. A real, Russian-localized poster from fanart.tv (by IMDb id), if FANART_API_KEY
+       is configured.
+    4. The real poster we do have (possibly English-only, from Kinopoisk/OMDb), with a
+       best-effort translated Russian title overlaid in a fixed font and a color
+       sampled from that same image.
+    5. A real poster from fanart.tv in any language, same best-effort overlay.
+    6. Last resort: Fal.ai-generated placeholder art (never real), with the same
        best-effort title overlay.
     """
     if metadata.poster_url and metadata.title_ru:
@@ -98,9 +102,22 @@ def fetch_poster(
         if result:
             return result
 
+    fanart_url, fanart_is_ru = fetch_fanart_poster(metadata.imdb_id, preferred_language="ru")
+    if fanart_url and fanart_is_ru:
+        result = _try_real_poster(fanart_url, metadata, output_dir, size, image_format, title_is_official=True)
+        if result:
+            return result
+
     if metadata.poster_url:
         result = _try_real_poster(
             metadata.poster_url, metadata, output_dir, size, image_format, title_is_official=False, overlay_title=True
+        )
+        if result:
+            return result
+
+    if fanart_url:
+        result = _try_real_poster(
+            fanart_url, metadata, output_dir, size, image_format, title_is_official=False, overlay_title=True
         )
         if result:
             return result

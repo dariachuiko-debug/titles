@@ -36,6 +36,7 @@ jobs:
           OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
           FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          FANART_API_KEY: ${{ secrets.FANART_API_KEY }}
           TITLE: ${{ github.event.inputs.title }}
           YEAR: ${{ github.event.inputs.year }}
         run: python main.py --title "$TITLE" --year "$YEAR" --output-dir samples
