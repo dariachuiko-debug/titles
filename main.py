@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+from covergen.art import CANVAS_SIZE, DEFAULT_IMAGE_FORMAT
 from covergen.pipeline import run_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -15,6 +16,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--year", type=int, default=DEFAULT_YEAR)
     parser.add_argument("--kinopoisk-id", type=int, default=None)
     parser.add_argument("--output-dir", default="output")
+    parser.add_argument("--width", type=int, default=CANVAS_SIZE[0])
+    parser.add_argument("--height", type=int, default=CANVAS_SIZE[1])
+    parser.add_argument("--image-format", choices=["jpeg", "png"], default=DEFAULT_IMAGE_FORMAT)
     return parser.parse_args()
 
 
@@ -25,6 +29,8 @@ def main() -> None:
         year=args.year,
         kinopoisk_id=args.kinopoisk_id,
         output_dir=args.output_dir,
+        size=(args.width, args.height),
+        image_format=args.image_format,
     )
 
     print("=== Metadata ===")

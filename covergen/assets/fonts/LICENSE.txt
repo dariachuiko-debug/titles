@@ -1,0 +1,5 @@
+DejaVuSans-Bold.ttf is part of the DejaVu Fonts project (https://dejavu-fonts.github.io/),
+derived from Bitstream Vera. Released under a permissive, redistributable license
+(Bitstream Vera License + public domain additions) that allows bundling and modification.
+Chosen here for its full Cyrillic coverage, so poster titles render identically on every
+machine that runs this pipeline, regardless of which fonts happen to be installed locally.
