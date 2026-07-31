@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from covergen.fanart import fetch_poster
+from covergen.fanart import fetch_poster_urls
 
 POSTERS_PAYLOAD = {
     "movieposter": [
@@ -13,20 +13,16 @@ POSTERS_PAYLOAD = {
 }
 
 
-class FetchPosterTests(unittest.TestCase):
-    def test_returns_none_without_api_key(self):
+class FetchPosterUrlsTests(unittest.TestCase):
+    def test_returns_empty_without_api_key(self):
         with patch("covergen.fanart.get_fanart_api_key", return_value=None):
-            url, is_ru = fetch_poster("tt1234567")
-        self.assertIsNone(url)
-        self.assertFalse(is_ru)
+            self.assertEqual(fetch_poster_urls("tt1234567"), [])
 
-    def test_returns_none_without_imdb_id(self):
+    def test_returns_empty_without_imdb_id(self):
         with patch("covergen.fanart.get_fanart_api_key", return_value="key"):
-            url, is_ru = fetch_poster(None)
-        self.assertIsNone(url)
-        self.assertFalse(is_ru)
+            self.assertEqual(fetch_poster_urls(None), [])
 
-    def test_prefers_preferred_language_poster(self):
+    def test_preferred_language_posters_come_first_by_likes(self):
         response = MagicMock(status_code=200)
         response.raise_for_status.return_value = None
         response.json.return_value = POSTERS_PAYLOAD
@@ -34,35 +30,24 @@ class FetchPosterTests(unittest.TestCase):
         with patch("covergen.fanart.get_fanart_api_key", return_value="key"), patch(
             "covergen.fanart.requests.get", return_value=response
         ):
-            url, is_ru = fetch_poster("tt1234567", preferred_language="ru")
+            urls = fetch_poster_urls("tt1234567", preferred_language="ru")
 
-        self.assertEqual(url, "https://fanart.example/ru.jpg")
-        self.assertTrue(is_ru)
+        self.assertEqual(
+            urls,
+            [
+                "https://fanart.example/ru.jpg",
+                "https://fanart.example/en-high.jpg",
+                "https://fanart.example/en-low.jpg",
+            ],
+        )
 
-    def test_falls_back_to_most_liked_poster_when_no_preferred_language(self):
-        payload = {"movieposter": [p for p in POSTERS_PAYLOAD["movieposter"] if p["lang"] != "ru"]}
-        response = MagicMock(status_code=200)
-        response.raise_for_status.return_value = None
-        response.json.return_value = payload
-
-        with patch("covergen.fanart.get_fanart_api_key", return_value="key"), patch(
-            "covergen.fanart.requests.get", return_value=response
-        ):
-            url, is_ru = fetch_poster("tt1234567", preferred_language="ru")
-
-        self.assertEqual(url, "https://fanart.example/en-high.jpg")
-        self.assertFalse(is_ru)
-
-    def test_returns_none_on_404(self):
+    def test_returns_empty_on_404(self):
         response = MagicMock(status_code=404)
 
         with patch("covergen.fanart.get_fanart_api_key", return_value="key"), patch(
             "covergen.fanart.requests.get", return_value=response
         ):
-            url, is_ru = fetch_poster("tt0000000")
-
-        self.assertIsNone(url)
-        self.assertFalse(is_ru)
+            self.assertEqual(fetch_poster_urls("tt0000000"), [])
 
 
 if __name__ == "__main__":

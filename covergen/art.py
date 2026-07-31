@@ -10,9 +10,10 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from .config import get_fal_api_key
-from .fanart import fetch_poster as fetch_fanart_poster
-from .metadata import TitleMetadata
-from .tmdb import fetch_localized_poster_url
+from .fanart import fetch_poster_urls as fetch_fanart_poster_urls
+from .metadata import TitleMetadata, fetch_kinopoisk_poster_gallery
+from .ocr import has_visible_text
+from .tmdb import fetch_poster_urls as fetch_tmdb_poster_urls
 from .translate import translate_to_russian
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,11 @@ FONT_PATH = Path(__file__).parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf"
 TITLE_MIN_FONT_SIZE = 22
 TITLE_MAX_LINES = 2
 DEFAULT_TITLE_COLOR = (255, 255, 255)
+TEXT_CROP_VERTICAL_BIAS = 0.85
+"""Titles on portrait posters usually sit in the bottom third. When we know (via OCR)
+that a candidate image has real text, bias the crop toward the bottom instead of the
+default center-crop, so fitting a portrait source to our wider canvas doesn't cut the
+title off."""
 
 
 @dataclass
@@ -35,15 +41,14 @@ class PosterResult:
     path: Path
     is_original_art: bool
     """True: the underlying image is real (official poster/key art from Kinopoisk,
-    OMDb, or TMDb). False: no official artwork was found anywhere, so this is
-    Fal.ai-generated placeholder art — NOT a real frame, since a text-to-image
-    model has no access to actual film footage."""
+    TMDb, fanart.tv, or OMDb). False: no official artwork was found anywhere, so
+    this is Fal.ai-generated placeholder art — NOT a real frame, since a
+    text-to-image model has no access to actual film footage."""
     title_is_official: bool
-    """True: the title text visible on the image is the studio's own (either
-    baked into a real, already-localized poster, or the image had no title we
-    touched). False: we overlaid a title ourselves (machine-translated and/or
-    on AI-generated art) — font and exact color are our best-effort approximation,
-    not the franchise's real typography."""
+    """True: the visible title text was confirmed (via OCR) to already be baked into
+    the real poster we used — the studio's own typography, untouched by us. False:
+    we overlaid a title ourselves (machine-translated and/or on AI-generated art) —
+    font and exact color are our best-effort approximation."""
 
 
 def poster_title(metadata: TitleMetadata) -> str:
@@ -77,55 +82,47 @@ def fetch_poster(
     size: tuple[int, int] = CANVAS_SIZE,
     image_format: str = DEFAULT_IMAGE_FORMAT,
 ) -> PosterResult:
-    """Get a poster image for the title, preferring real official artwork over AI art.
+    """Get a poster image for the title, preferring a real poster that already has
+    a legible title baked in, over drawing our own text on top of anything:
 
-    Kinopoisk's own poster CDN URLs cap out around 600x900 — noticeably softer once
-    upscaled to our wider 1280x768 canvas — so TMDb/fanart.tv (which serve full
-    original-resolution scans) are tried first for a Russian-localized poster, and
-    Kinopoisk/OMDb's own poster_url is only a resolution fallback, not the primary pick:
-
-    1. A real, Russian-localized poster from TMDb, if TMDB_API_KEY is configured.
-    2. A real, Russian-localized poster from fanart.tv (by IMDb id), if FANART_API_KEY
-       is configured.
-    3. Kinopoisk/OMDb poster_url when we also have a confirmed Russian title — smaller,
-       but still real and already carries the studio's own Russian typography.
-    4. The real poster we do have (possibly English-only, from Kinopoisk/OMDb), with a
-       best-effort translated Russian title overlaid in a fixed font and a color
-       sampled from that same image.
-    5. A real poster from fanart.tv in any language, same best-effort overlay.
-    6. Last resort: Fal.ai-generated placeholder art (never real), with the same
-       best-effort title overlay.
+    1. Gather real-poster candidates from every source we have — Kinopoisk's full
+       image gallery (not just the one poster on the movie record, which is often
+       textless key art), TMDb, fanart.tv, and the plain poster_url from metadata —
+       Russian-tagged sources first, then English.
+    2. Download each in turn and check it with local OCR (Tesseract, no external
+       API). The first one with confidently-detected real text wins, used as-is.
+    3. If nothing anywhere has legible text, fall back to the highest-resolution
+       candidate we downloaded, with our own translated title overlaid (fixed font,
+       accent color sampled from that image).
+    4. Only if no real image was found at all: Fal.ai-generated placeholder art
+       (never real), same overlay treatment. Flagged via PosterResult.is_original_art.
     """
-    tmdb_url = fetch_localized_poster_url(metadata.display_title, metadata.year, language="ru")
-    if tmdb_url:
-        result = _try_real_poster(tmdb_url, metadata, output_dir, size, image_format, title_is_official=True)
-        if result:
-            return result
+    candidate_urls = _gather_candidate_urls(metadata)
 
-    fanart_url, fanart_is_ru = fetch_fanart_poster(metadata.imdb_id, preferred_language="ru")
-    if fanart_url and fanart_is_ru:
-        result = _try_real_poster(fanart_url, metadata, output_dir, size, image_format, title_is_official=True)
-        if result:
-            return result
+    best_source: tuple[int, Image.Image] | None = None  # (pixel area, raw image)
+    for url in candidate_urls:
+        raw_image = _try_download_image(url)
+        if raw_image is None:
+            continue
 
-    if metadata.poster_url and metadata.title_ru:
-        result = _try_real_poster(metadata.poster_url, metadata, output_dir, size, image_format, title_is_official=True)
-        if result:
-            return result
+        area = raw_image.width * raw_image.height
+        if best_source is None or area > best_source[0]:
+            best_source = (area, raw_image)
 
-    if metadata.poster_url:
-        result = _try_real_poster(
-            metadata.poster_url, metadata, output_dir, size, image_format, title_is_official=False, overlay_title=True
-        )
-        if result:
-            return result
+        if has_visible_text(raw_image):
+            image = _fit_to_canvas(raw_image, size, vertical_bias=TEXT_CROP_VERTICAL_BIAS)
+            path = _save_image(image, metadata, output_dir, image_format)
+            logger.info("Using real poster with detected text from %s", url)
+            return PosterResult(path=path, is_original_art=True, title_is_official=True)
 
-    if fanart_url:
-        result = _try_real_poster(
-            fanart_url, metadata, output_dir, size, image_format, title_is_official=False, overlay_title=True
-        )
-        if result:
-            return result
+    if best_source is not None:
+        _, raw_image = best_source
+        image = _fit_to_canvas(raw_image, size)
+        color = _pick_accent_color(image)
+        image = _draw_title(image, poster_title(metadata), color=color)
+        path = _save_image(image, metadata, output_dir, image_format)
+        logger.info("No real poster had detectable text; overlaid our own title instead")
+        return PosterResult(path=path, is_original_art=True, title_is_official=False)
 
     logger.warning(
         "No official poster available anywhere for %r — generating AI placeholder art. "
@@ -136,30 +133,38 @@ def fetch_poster(
     return PosterResult(path=path, is_original_art=False, title_is_official=False)
 
 
-def _try_real_poster(
-    url: str,
-    metadata: TitleMetadata,
-    output_dir: str | Path,
-    size: tuple[int, int],
-    image_format: str,
-    title_is_official: bool,
-    overlay_title: bool = False,
-) -> PosterResult | None:
+def _gather_candidate_urls(metadata: TitleMetadata) -> list[str]:
+    """Real-poster URLs in priority order: Russian-market sources first, then
+    English-language ones. Order within a source matters less than source order,
+    since fetch_poster() stops at the first one with confirmed visible text."""
+    urls: list[str] = []
+
+    urls.extend(fetch_kinopoisk_poster_gallery(metadata.kinopoisk_id))
+    urls.extend(fetch_tmdb_poster_urls(metadata.display_title, metadata.year, language_priority=("ru",)))
+    urls.extend(fetch_fanart_poster_urls(metadata.imdb_id, preferred_language="ru"))
+    if metadata.poster_url and metadata.source == "kinopoisk":
+        urls.append(metadata.poster_url)
+
+    urls.extend(fetch_tmdb_poster_urls(metadata.display_title, metadata.year, language_priority=("en",)))
+    if metadata.poster_url and metadata.poster_url not in urls:
+        urls.append(metadata.poster_url)
+
+    seen: set[str] = set()
+    deduped = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            deduped.append(url)
+    return deduped
+
+
+def _try_download_image(url: str) -> Image.Image | None:
     try:
         raw_bytes = _download_bytes(url)
-        image = Image.open(BytesIO(raw_bytes)).convert("RGB")
+        return Image.open(BytesIO(raw_bytes)).convert("RGB")
     except (requests.RequestException, OSError) as exc:
-        logger.warning("Failed to fetch poster %s: %s", url, exc)
+        logger.warning("Failed to fetch candidate poster %s: %s", url, exc)
         return None
-
-    image = _fit_to_canvas(image, size)
-    if overlay_title:
-        color = _pick_accent_color(image)
-        image = _draw_title(image, poster_title(metadata), color=color)
-
-    path = _save_image(image, metadata, output_dir, image_format)
-    logger.info("Using real poster art from %s (title_is_official=%s)", url, title_is_official)
-    return PosterResult(path=path, is_original_art=True, title_is_official=title_is_official)
 
 
 def generate_art(
@@ -210,8 +215,14 @@ def _download_bytes(url: str) -> bytes:
     return response.content
 
 
-def _fit_to_canvas(image: Image.Image, size: tuple[int, int]) -> Image.Image:
-    """Resize+center-crop (cover fit) so the image exactly matches the target size."""
+def _fit_to_canvas(image: Image.Image, size: tuple[int, int], vertical_bias: float = 0.5) -> Image.Image:
+    """Resize+crop (cover fit) so the image exactly matches the target size.
+
+    vertical_bias controls where the crop window sits when a portrait source has to
+    lose height to fill our wider canvas: 0.5 is a center crop (best for character
+    compositions), closer to 1.0 keeps more of the bottom (where poster titles
+    usually sit) at the cost of the top.
+    """
     target_w, target_h = size
     src_w, src_h = image.size
     src_ratio = src_w / src_h
@@ -220,14 +231,16 @@ def _fit_to_canvas(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     if src_ratio > target_ratio:
         new_h = target_h
         new_w = round(new_h * src_ratio)
-    else:
-        new_w = target_w
-        new_h = round(new_w / src_ratio)
+        image = image.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - target_w) // 2
+        return image.crop((left, 0, left + target_w, target_h))
 
+    new_w = target_w
+    new_h = round(new_w / src_ratio)
     image = image.resize((new_w, new_h), Image.LANCZOS)
-    left = (new_w - target_w) // 2
-    top = (new_h - target_h) // 2
-    return image.crop((left, top, left + target_w, top + target_h))
+    excess = new_h - target_h
+    top = max(0, min(round(excess * vertical_bias), excess))
+    return image.crop((0, top, target_w, top + target_h))
 
 
 def _pick_accent_color(image: Image.Image, fallback: tuple[int, int, int] = DEFAULT_TITLE_COLOR) -> tuple[int, int, int]:

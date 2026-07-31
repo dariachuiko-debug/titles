@@ -97,6 +97,35 @@ def _fetch_from_kinopoisk(
     return _parse_kinopoisk_doc(doc)
 
 
+def fetch_kinopoisk_poster_gallery(kinopoisk_id: int | None, limit: int = 6) -> list[str]:
+    """Best-effort list of additional poster image URLs for a Kinopoisk movie id.
+
+    The main movie record's poster.url is just one representative image — Kinopoisk
+    hosts several poster variants per title (some with the Russian title baked in,
+    some textless key art), reachable only via this separate gallery endpoint.
+    Never raises: returns [] if unavailable.
+    """
+    api_key = get_kinopoisk_api_key()
+    if not api_key or not kinopoisk_id:
+        return []
+
+    headers = {"X-API-KEY": api_key, "accept": "application/json"}
+    try:
+        response = requests.get(
+            f"{KINOPOISK_BASE_URL}/image",
+            headers=headers,
+            params={"movieId": kinopoisk_id, "type": "poster", "page": 1, "limit": limit},
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        docs = response.json().get("docs", [])
+    except requests.RequestException as exc:
+        logger.warning("Kinopoisk poster gallery request failed: %s", exc)
+        return []
+
+    return [doc["url"] for doc in docs if doc.get("url")]
+
+
 def _pick_best_match(docs: list[dict], year: int | None) -> dict | None:
     if not docs:
         return None
