@@ -1,0 +1,44 @@
+name: Generate poster
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Movie/series title"
+        required: false
+        default: "Guardians of the Galaxy Vol. 2"
+      year:
+        description: "Release year"
+        required: false
+        default: "2017"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          KINOPOISK_API_KEY: ${{ secrets.KINOPOISK_API_KEY }}
+          OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+          FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
+          TITLE: ${{ github.event.inputs.title }}
+          YEAR: ${{ github.event.inputs.year }}
+        run: python main.py --title "$TITLE" --year "$YEAR"
+
+      - name: Upload generated poster
+        uses: actions/upload-artifact@v4
+        with:
+          name: poster-${{ github.run_id }}
+          path: output/
+          if-no-files-found: error

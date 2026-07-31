@@ -24,10 +24,13 @@ FAL_API_KEY=...
 
 ```bash
 python3 main.py
+python3 main.py --title "Дюна" --year 2021
+python3 main.py --kinopoisk-id 462
 ```
 
-Запускает пайплайн на тестовом тайтле "Guardians of the Galaxy Vol. 2" (2017):
-получает метаданные и сохраняет сгенерированную обложку в `output/`.
+Без аргументов запускает пайплайн на тестовом тайтле "Guardians of the Galaxy
+Vol. 2" (2017): получает метаданные и сохраняет сгенерированную обложку в
+`output/`.
 
 Программный интерфейс:
 
@@ -57,3 +60,17 @@ metadata, image_path = run_pipeline("Guardians of the Galaxy Vol. 2", year=2017)
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+## Запуск через GitHub Actions
+
+Kinopoisk, OMDb и Fal.ai могут быть недоступны из некоторых песочниц/CI со
+строгой сетевой политикой. `.github/workflows/generate-poster.yml` запускает
+пайплайн на раннере GitHub (у него открытый доступ в интернет) и кладёт
+сгенерированную обложку в артефакт запуска.
+
+Перед первым запуском добавьте секреты репозитория (Settings → Secrets and
+variables → Actions): `KINOPOISK_API_KEY`, `OMDB_API_KEY`, `FAL_API_KEY`.
+
+Дальше запускать вручную: вкладка Actions → "Generate poster" → Run workflow,
+указав `title`/`year`. Результат — артефакт `poster-<run_id>` с файлом из
+`output/`.

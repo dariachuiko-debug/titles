@@ -1,15 +1,31 @@
+import argparse
 import logging
 
 from covergen.pipeline import run_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-TEST_TITLE = "Guardians of the Galaxy Vol. 2"
-TEST_YEAR = 2017
+DEFAULT_TITLE = "Guardians of the Galaxy Vol. 2"
+DEFAULT_YEAR = 2017
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate a poster for a movie/series title")
+    parser.add_argument("--title", default=DEFAULT_TITLE)
+    parser.add_argument("--year", type=int, default=DEFAULT_YEAR)
+    parser.add_argument("--kinopoisk-id", type=int, default=None)
+    parser.add_argument("--output-dir", default="output")
+    return parser.parse_args()
 
 
 def main() -> None:
-    metadata, image_path = run_pipeline(TEST_TITLE, year=TEST_YEAR)
+    args = parse_args()
+    metadata, image_path = run_pipeline(
+        args.title,
+        year=args.year,
+        kinopoisk_id=args.kinopoisk_id,
+        output_dir=args.output_dir,
+    )
 
     print("=== Metadata ===")
     print(f"source:          {metadata.source}")
