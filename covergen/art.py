@@ -77,13 +77,18 @@ def fetch_poster(
     size: tuple[int, int] = CANVAS_SIZE,
     image_format: str = DEFAULT_IMAGE_FORMAT,
 ) -> PosterResult:
-    """Get a poster image for the title, preferring real official artwork over AI art:
+    """Get a poster image for the title, preferring real official artwork over AI art.
 
-    1. Kinopoisk/OMDb poster_url when we also have a confirmed Russian title — assumed
-       to already carry the studio's own Russian typography, used as-is.
-    2. A real, Russian-localized poster from TMDb, if TMDB_API_KEY is configured.
-    3. A real, Russian-localized poster from fanart.tv (by IMDb id), if FANART_API_KEY
+    Kinopoisk's own poster CDN URLs cap out around 600x900 — noticeably softer once
+    upscaled to our wider 1280x768 canvas — so TMDb/fanart.tv (which serve full
+    original-resolution scans) are tried first for a Russian-localized poster, and
+    Kinopoisk/OMDb's own poster_url is only a resolution fallback, not the primary pick:
+
+    1. A real, Russian-localized poster from TMDb, if TMDB_API_KEY is configured.
+    2. A real, Russian-localized poster from fanart.tv (by IMDb id), if FANART_API_KEY
        is configured.
+    3. Kinopoisk/OMDb poster_url when we also have a confirmed Russian title — smaller,
+       but still real and already carries the studio's own Russian typography.
     4. The real poster we do have (possibly English-only, from Kinopoisk/OMDb), with a
        best-effort translated Russian title overlaid in a fixed font and a color
        sampled from that same image.
@@ -91,11 +96,6 @@ def fetch_poster(
     6. Last resort: Fal.ai-generated placeholder art (never real), with the same
        best-effort title overlay.
     """
-    if metadata.poster_url and metadata.title_ru:
-        result = _try_real_poster(metadata.poster_url, metadata, output_dir, size, image_format, title_is_official=True)
-        if result:
-            return result
-
     tmdb_url = fetch_localized_poster_url(metadata.display_title, metadata.year, language="ru")
     if tmdb_url:
         result = _try_real_poster(tmdb_url, metadata, output_dir, size, image_format, title_is_official=True)
@@ -105,6 +105,11 @@ def fetch_poster(
     fanart_url, fanart_is_ru = fetch_fanart_poster(metadata.imdb_id, preferred_language="ru")
     if fanart_url and fanart_is_ru:
         result = _try_real_poster(fanart_url, metadata, output_dir, size, image_format, title_is_official=True)
+        if result:
+            return result
+
+    if metadata.poster_url and metadata.title_ru:
+        result = _try_real_poster(metadata.poster_url, metadata, output_dir, size, image_format, title_is_official=True)
         if result:
             return result
 

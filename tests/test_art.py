@@ -65,60 +65,39 @@ class FetchPosterTests(unittest.TestCase):
         Image.new("RGB", (600, 900), "green").save(buf, format="JPEG")
         return buf.getvalue()
 
-    def test_uses_real_poster_as_is_when_russian_title_confirmed(self):
-        """Step 1: Kinopoisk poster_url + confirmed title_ru -> used untouched."""
+    def test_uses_tmdb_poster_first_even_when_kinopoisk_already_has_russian_title(self):
+        """Step 1: TMDb ru poster is preferred over Kinopoisk's own (usually smaller) poster_url."""
         metadata = TitleMetadata(
             title_ru="Тестовый фильм",
             title_original="Test Movie",
             year=2020,
             source="kinopoisk",
-            poster_url="https://example.com/poster.jpg",
+            poster_url="https://example.com/small-kinopoisk-poster.jpg",
         )
         response = MagicMock(content=self._fake_poster_bytes())
         response.raise_for_status.return_value = None
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
             "covergen.art.requests.get", return_value=response
-        ) as mock_get, patch("covergen.art.fetch_localized_poster_url") as mock_tmdb:
+        ) as mock_get, patch(
+            "covergen.art.fetch_localized_poster_url", return_value="https://tmdb.example/ru-poster-original.jpg"
+        ) as mock_tmdb:
             result = fetch_poster(metadata, output_dir=tmp_dir)
             self.assertTrue(result.is_original_art)
             self.assertTrue(result.title_is_official)
             self.assertTrue(result.path.exists())
 
-        mock_tmdb.assert_not_called()
-        mock_get.assert_called_once()
-
-    def test_uses_tmdb_localized_poster_when_no_confirmed_russian_title(self):
-        """Step 2: no title_ru, but TMDb has a real ru-localized poster -> used untouched."""
-        metadata = TitleMetadata(
-            title_ru=None,
-            title_original="Test Movie",
-            year=2020,
-            source="omdb",
-            poster_url="https://example.com/english-poster.jpg",
-        )
-        response = MagicMock(content=self._fake_poster_bytes())
-        response.raise_for_status.return_value = None
-
-        with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "covergen.art.requests.get", return_value=response
-        ), patch(
-            "covergen.art.fetch_localized_poster_url", return_value="https://tmdb.example/ru-poster.jpg"
-        ) as mock_tmdb, patch("covergen.art.fetch_fanart_poster", return_value=(None, False)):
-            result = fetch_poster(metadata, output_dir=tmp_dir)
-
         mock_tmdb.assert_called_once()
-        self.assertTrue(result.is_original_art)
-        self.assertTrue(result.title_is_official)
+        mock_get.assert_called_once_with("https://tmdb.example/ru-poster-original.jpg", timeout=60)
 
-    def test_uses_fanart_ru_poster_when_no_kinopoisk_or_tmdb_match(self):
-        """Step 3: no title_ru, TMDb has nothing, but fanart.tv has a ru poster -> used untouched."""
+    def test_uses_fanart_ru_poster_when_tmdb_has_nothing(self):
+        """Step 2: TMDb has nothing, but fanart.tv has a ru poster -> preferred over Kinopoisk's own."""
         metadata = TitleMetadata(
-            title_ru=None,
+            title_ru="Тестовый фильм",
             title_original="Test Movie",
             year=2020,
-            source="omdb",
-            poster_url="https://example.com/english-poster.jpg",
+            source="kinopoisk",
+            poster_url="https://example.com/small-kinopoisk-poster.jpg",
             imdb_id="tt1234567",
         )
         response = MagicMock(content=self._fake_poster_bytes())
@@ -126,12 +105,36 @@ class FetchPosterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
             "covergen.art.requests.get", return_value=response
-        ), patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
+        ) as mock_get, patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
             "covergen.art.fetch_fanart_poster", return_value=("https://fanart.example/ru-poster.jpg", True)
         ) as mock_fanart:
             result = fetch_poster(metadata, output_dir=tmp_dir)
 
         mock_fanart.assert_called_once_with("tt1234567", preferred_language="ru")
+        mock_get.assert_called_once_with("https://fanart.example/ru-poster.jpg", timeout=60)
+        self.assertTrue(result.is_original_art)
+        self.assertTrue(result.title_is_official)
+
+    def test_falls_back_to_kinopoisk_poster_when_no_better_ru_source(self):
+        """Step 3: neither TMDb nor fanart.tv has a ru poster -> use Kinopoisk's own poster_url."""
+        metadata = TitleMetadata(
+            title_ru="Тестовый фильм",
+            title_original="Test Movie",
+            year=2020,
+            source="kinopoisk",
+            poster_url="https://example.com/small-kinopoisk-poster.jpg",
+        )
+        response = MagicMock(content=self._fake_poster_bytes())
+        response.raise_for_status.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmp_dir, patch(
+            "covergen.art.requests.get", return_value=response
+        ) as mock_get, patch("covergen.art.fetch_localized_poster_url", return_value=None), patch(
+            "covergen.art.fetch_fanart_poster", return_value=(None, False)
+        ):
+            result = fetch_poster(metadata, output_dir=tmp_dir)
+
+        mock_get.assert_called_once_with("https://example.com/small-kinopoisk-poster.jpg", timeout=60)
         self.assertTrue(result.is_original_art)
         self.assertTrue(result.title_is_official)
 
