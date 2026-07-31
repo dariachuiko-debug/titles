@@ -43,8 +43,9 @@ def main() -> None:
     print(f"description:     {metadata.description}")
     print()
     print("=== Poster ===")
-    print(f"saved to:        {poster.path}")
-    print(f"is_original:     {poster.is_original} ({'real official poster' if poster.is_original else 'AI PLACEHOLDER — not a real image'})")
+    print(f"saved to:          {poster.path}")
+    print(f"is_original_art:   {poster.is_original_art} ({'real official artwork' if poster.is_original_art else 'AI PLACEHOLDER — not a real image'})")
+    print(f"title_is_official: {poster.title_is_official} ({'studio typography' if poster.title_is_official else 'our best-effort overlay'})")
 
 
 if __name__ == "__main__":

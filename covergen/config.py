@@ -15,3 +15,7 @@ def get_omdb_api_key() -> str | None:
 
 def get_fal_api_key() -> str | None:
     return os.getenv("FAL_API_KEY")
+
+
+def get_tmdb_api_key() -> str | None:
+    return os.getenv("TMDB_API_KEY")
