@@ -12,6 +12,9 @@ on:
         required: false
         default: "2017"
 
+permissions:
+  contents: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -34,11 +37,26 @@ jobs:
           FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
           TITLE: ${{ github.event.inputs.title }}
           YEAR: ${{ github.event.inputs.year }}
-        run: python main.py --title "$TITLE" --year "$YEAR"
+        run: python main.py --title "$TITLE" --year "$YEAR" --output-dir samples
+
+      - name: Commit generated poster
+        env:
+          TITLE: ${{ github.event.inputs.title }}
+          YEAR: ${{ github.event.inputs.year }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add samples/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update sample poster: $TITLE ($YEAR)"
+            git push
+          fi
 
       - name: Upload generated poster
         uses: actions/upload-artifact@v4
         with:
           name: poster-${{ github.run_id }}
-          path: output/
+          path: samples/
           if-no-files-found: error
