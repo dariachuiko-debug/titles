@@ -7,7 +7,7 @@ from .config import get_kinopoisk_api_key, get_omdb_api_key
 
 logger = logging.getLogger(__name__)
 
-KINOPOISK_BASE_URL = "https://api.kinopoisk.dev/v1.4"
+KINOPOISK_BASE_URL = "https://api.poiskkino.dev/v1.4"
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 
 REQUEST_TIMEOUT = 15
@@ -87,7 +87,8 @@ def _fetch_from_kinopoisk(
             docs = response.json().get("docs", [])
             doc = _pick_best_match(docs, year)
     except requests.RequestException as exc:
-        logger.warning("Kinopoisk request failed: %s", exc)
+        body = getattr(exc.response, "text", None)
+        logger.warning("Kinopoisk request failed: %s | response body: %s", exc, body)
         return None
 
     if not doc:
