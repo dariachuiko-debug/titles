@@ -1,5 +1,6 @@
 import logging
 import re
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
@@ -24,9 +25,48 @@ TITLE_MIN_FONT_SIZE = 22
 TITLE_MAX_LINES = 2
 
 
+@dataclass
+class PosterResult:
+    path: Path
+    is_original: bool
+    """True: real official poster art (from Kinopoisk/OMDb poster_url), fit to size only.
+    False: no official poster was found; this is Fal.ai-generated placeholder art — it is
+    NOT a real frame or official artwork, just an AI approximation, since a text-to-image
+    model has no access to actual film footage."""
+
+
 def poster_title(metadata: TitleMetadata) -> str:
-    """The title text overlaid on the poster: Russian when available, else original."""
+    """The title text overlaid on AI-generated placeholder art: Russian when available, else original."""
     return metadata.title_ru or metadata.title_original or ""
+
+
+def fetch_poster(
+    metadata: TitleMetadata,
+    output_dir: str | Path = "output",
+    model: str = DEFAULT_MODEL,
+    size: tuple[int, int] = CANVAS_SIZE,
+    image_format: str = DEFAULT_IMAGE_FORMAT,
+) -> PosterResult:
+    """Get a poster image for the title: the real official poster when one exists,
+    otherwise an AI-generated placeholder as a last resort."""
+    if metadata.poster_url:
+        try:
+            raw_bytes = _download_bytes(metadata.poster_url)
+            image = Image.open(BytesIO(raw_bytes)).convert("RGB")
+            image = _fit_to_canvas(image, size)
+            path = _save_image(image, metadata, output_dir, image_format)
+            logger.info("Using original poster art (%s) from %s", metadata.poster_url, metadata.source)
+            return PosterResult(path=path, is_original=True)
+        except (requests.RequestException, OSError) as exc:
+            logger.warning("Failed to fetch original poster %s: %s — falling back to AI art", metadata.poster_url, exc)
+
+    logger.warning(
+        "No original poster available for %r — generating AI placeholder art. "
+        "This is NOT real film footage/artwork, only an AI approximation.",
+        metadata.display_title,
+    )
+    path = generate_art(metadata, output_dir=output_dir, model=model, size=size, image_format=image_format)
+    return PosterResult(path=path, is_original=False)
 
 
 def build_prompt(metadata: TitleMetadata) -> str:

@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    metadata, image_path = run_pipeline(
+    metadata, poster = run_pipeline(
         args.title,
         year=args.year,
         kinopoisk_id=args.kinopoisk_id,
@@ -42,8 +42,9 @@ def main() -> None:
     print(f"poster_url:      {metadata.poster_url}")
     print(f"description:     {metadata.description}")
     print()
-    print("=== Generated art ===")
-    print(f"saved to:        {image_path}")
+    print("=== Poster ===")
+    print(f"saved to:        {poster.path}")
+    print(f"is_original:     {poster.is_original} ({'real official poster' if poster.is_original else 'AI PLACEHOLDER — not a real image'})")
 
 
 if __name__ == "__main__":
