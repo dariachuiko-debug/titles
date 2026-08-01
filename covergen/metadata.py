@@ -114,7 +114,7 @@ def fetch_kinopoisk_poster_gallery(kinopoisk_id: int | None, limit: int = 6) -> 
         response = requests.get(
             f"{KINOPOISK_BASE_URL}/image",
             headers=headers,
-            params={"movieId": kinopoisk_id, "type": "poster", "page": 1, "limit": limit},
+            params={"movieId": kinopoisk_id, "type": "cover", "page": 1, "limit": limit},
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
