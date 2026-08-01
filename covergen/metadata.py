@@ -120,7 +120,8 @@ def fetch_kinopoisk_poster_gallery(kinopoisk_id: int | None, limit: int = 6) -> 
         response.raise_for_status()
         docs = response.json().get("docs", [])
     except requests.RequestException as exc:
-        logger.warning("Kinopoisk poster gallery request failed: %s", exc)
+        body = getattr(exc.response, "text", None)
+        logger.warning("Kinopoisk poster gallery request failed: %s | response body: %s", exc, body)
         return []
 
     return [doc["url"] for doc in docs if doc.get("url")]
